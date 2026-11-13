@@ -1,0 +1,14 @@
+# Local configuration and dependencies
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+build/
+coverage/
+
+# Xcode and macOS user files
+xcuserdata/
+DerivedData/
+*.xcuserstate
+.DS_Store
