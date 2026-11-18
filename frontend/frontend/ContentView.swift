@@ -3,11 +3,20 @@ import Playgrounds
 
 struct ContentView: View {
     @State private var villages: [Village] = []
+    @State private var showImport: Bool = false
 
     func remainingSeconds(exportTimestamp: Int, timer: Int) -> TimeInterval {
         return TimeInterval(exportTimestamp) + TimeInterval(timer) - Date().timeIntervalSince1970
     }
-
+    
+    func loadVillage() async {
+        do {
+            villages = try await VillageAPI().fetchVillages()
+        } catch {
+            print("Failed to fetch villages:", error)
+        }
+    }
+    
     func formatRemainingTime(time: TimeInterval) -> String {
         if(time <= 0) { return "Expected to be complete" } else {
             let totalSeconds = Int(time)
@@ -39,6 +48,16 @@ struct ContentView: View {
                     .padding()
                     .font(.largeTitle)
                     .bold()
+                Button("Import") {
+                    showImport = true
+                }
+                .sheet(isPresented: $showImport, onDismiss: {
+                    Task {
+                        await loadVillage()
+                    }
+                }) {
+                    ImportVillageView()
+                }
                 ForEach(villages, id: \.id) {
                     village in Text(village.label ?? village.tag)
 
@@ -67,11 +86,7 @@ struct ContentView: View {
 
             }
             .task {
-                do {
-                    villages = try await VillageAPI().fetchVillages()
-                } catch {
-                    print("Failed to fetch villages:", error)
-                }
+               await loadVillage()
             }
         }
     }

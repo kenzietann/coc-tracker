@@ -1,0 +1,13 @@
+[package]
+name = "coc-tracker-api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dotenvy = "0.15.7"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+serde_json = "1"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "mysql"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }

@@ -12,3 +12,5 @@ xcuserdata/
 DerivedData/
 *.xcuserstate
 .DS_Store
+
+/backend/target/
