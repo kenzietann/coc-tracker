@@ -1,26 +1,58 @@
 # CoC Tracker
 
-A small Clash of Clans upgrade tracker for my main and alt accounts. It's a fun project and a way for me to learn Swift and iOS development.
+A small Clash of Clans upgrade tracker for my main and alt accounts. It's also how I'm learning SwiftUI and Rust.
 
-The iOS app shows upgrades and countdowns from a village export. The NestJS backend imports and stores village data in MariaDB. The timers are estimates based on the most recent export, so changes in the game need another import.
+Paste a village export into the app to see upgrades and estimated countdowns. The Rust backend saves the latest snapshot for each village in MariaDB and rejects older exports. To pick up changes from the game, import a fresh export.
 
 ## Project layout
 
-- `frontend/` — iOS app built with SwiftUI
-- `backend/` — NestJS API using TypeORM and MariaDB
+- `frontend/` hosts the SwiftUI app.
+- `backend/` hosts the Rust API. It uses Hyper and Tokio for HTTP and SQLx for raw SQL queries against MariaDB.
 
 ## Run locally
 
-Start MariaDB and create a database. In `backend/`, copy `.env.example` to `.env` and set your database credentials. Then run:
+You'll need Xcode, Rust with Cargo (edition 2024), and MariaDB 10.7 or later for the native UUID column.
 
-```sh
-npm install
-npm run migration:run
-npm run start:dev
+If you already have a `coc.villages` table from the NestJS backend, you can reuse it. For a fresh setup, run this SQL as a MariaDB admin:
+
+```sql
+CREATE DATABASE IF NOT EXISTS coc;
+
+CREATE TABLE IF NOT EXISTS coc.villages (
+    id UUID NOT NULL PRIMARY KEY,
+    tag VARCHAR(32) NOT NULL UNIQUE,
+    label VARCHAR(100) NULL,
+    exportTimestamp BIGINT NOT NULL,
+    rawExport TEXT NOT NULL
+) ENGINE=InnoDB;
+
+CREATE USER 'coc_tracker'@'127.0.0.1' IDENTIFIED BY 'replace_with_a_password';
+GRANT SELECT, INSERT, UPDATE ON coc.villages TO 'coc_tracker'@'127.0.0.1';
 ```
 
-The backend uses port `4444` by default. Open `frontend/frontend.xcodeproj` in Xcode and run the app in an iPhone simulator. The app currently connects to the backend on the same Mac; a physical iPhone will need a reachable backend address.
+If your database account already exists, skip `CREATE USER` and grant it access to the table. Create `backend/.env` with your local connection string:
 
-Village JSON can currently be imported through `POST /clash/import`. In-app import and upgrade notifications are planned.
+```dotenv
+DATABASE_URL=mysql://coc_tracker:replace_with_a_password@127.0.0.1:3306/coc
+```
+
+Percent-encode any URL special characters in the password. Then start the backend:
+
+```sh
+cd backend
+cargo run --locked
+```
+
+The API listens at `http://127.0.0.1:4444`. Open `frontend/frontend.xcodeproj` in Xcode and run the app on your Mac or in an iPhone simulator on the same Mac. Tap **Import** and paste a village export. After a successful import, the dashboard refreshes automatically.
+
+## API
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/health` | Checks that the server is up. |
+| GET | `/clash/villages` | Lists saved villages and their timed upgrades. |
+| POST | `/clash/import` | Saves a village export. Returns `409 Conflict` if a newer export is already saved. |
+
+Village renaming and upgrade notifications are planned.
 
 This is a fan project and is not affiliated with Supercell.
