@@ -6,13 +6,20 @@ use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
 
-async fn handle_request(request: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
+async fn handle_request(
+    request: Request<Incoming>,
+    pool: &sqlx::MySqlPool,
+) -> Result<Response<Full<Bytes>>, Infallible> {
     if request.method() == hyper::Method::GET && request.uri().path() == "/health" {
         return Ok(Response::new(Full::new(Bytes::from_static(b"ok"))));
     }
 
     if request.method() == hyper::Method::GET && request.uri().path() == "/clash/villages" {
-      return Ok(clash::controller::list_villages());
+        return Ok(clash::controller::list_villages(pool).await);
+    }
+
+    if request.method() == hyper::Method::POST && request.uri().path() == "/clash/import" {
+      return Ok(clash::controller::import_village(request, pool).await);
     }
 
     let mut response = Response::new(Full::new(Bytes::from_static(b"not found")));
@@ -31,23 +38,12 @@ async fn main() {
         panic!("Could not load .env");
     }
 
-    let database_url = std::env::var("DATABASE_URL")
-      .expect("set DATABASE_URL before starting the server");
+    let database_url =
+        std::env::var("DATABASE_URL").expect("set DATABASE_URL before starting the server");
 
     let pool = sqlx::MySqlPool::connect(&database_url)
-      .await
-      .expect("could not connect to MariaDB");
-
-    let villages: Vec<(String, String, Option<String>, i64)> = sqlx::query_as(
-      "SELECT CAST(id AS CHAR), tag, label, exportTimestamp
-       FROM villages
-       LIMIT 5",
-    )
-    .fetch_all(&pool)
-    .await
-    .expect("could not read villages");
-
-    println!("Read {} villages from MariaDB", villages.len());
+        .await
+        .expect("could not connect to MariaDB");
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:4444")
         .await
@@ -61,11 +57,15 @@ async fn main() {
 
         println!("Client connected from {client_addr}");
 
+        let pool = pool.clone();
         tokio::spawn(async move {
             if let Err(error) = hyper::server::conn::http1::Builder::new()
                 .serve_connection(
                     hyper_util::rt::TokioIo::new(stream),
-                    hyper::service::service_fn(handle_request),
+                    hyper::service::service_fn(move |request| {
+                        let pool = pool.clone();
+                        async move { handle_request(request, &pool).await }
+                    }),
                 )
                 .await
             {
