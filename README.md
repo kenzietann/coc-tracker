@@ -53,6 +53,12 @@ The API listens at `http://127.0.0.1:4444`. Open `frontend/frontend.xcodeproj` i
 | GET | `/clash/villages` | Lists saved villages and their timed upgrades. |
 | POST | `/clash/import` | Saves a village export. Returns `409 Conflict` if a newer export is already saved. |
 
-Village renaming and upgrade notifications are planned.
+Tap the bell to enable local reminders one minute before an upgrade’s estimated finish. Import a fresh export to update the reminders. Village renaming is planned.
 
 This is a fan project and is not affiliated with Supercell.
+
+## Artwork credits
+
+Clash of Clans artwork belongs to Supercell and is used under its [Fan Content Policy](https://supercell.com/en/fan-content-policy/). The bundled thumbnails come from [ClashKing Assets](https://github.com/ClashKingInc/ClashKingAssets/tree/6da8ce864afe2b4510d3342e1c7374e48d7f5a49). Item IDs use the project's existing lookup and the [community village export mapping](https://gist.github.com/rahulkhatri137/a8449943df45100c5f1e1359cd9ec67a).
+
+The dashboard uses one representative image per item type. Buildings use the highest numbered render available in this snapshot, while the countdowns use the saved village export.

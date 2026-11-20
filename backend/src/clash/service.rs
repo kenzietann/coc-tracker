@@ -85,10 +85,19 @@ fn item_name(id: i64) -> Option<&'static str> {
 }
 
 pub(super) fn collect_timed_entries(value: &Value, entries: &mut Vec<Value>) {
+    collect_timed_entries_in_base(value, entries, None, true);
+}
+
+fn collect_timed_entries_in_base(
+    value: &Value,
+    entries: &mut Vec<Value>,
+    base: Option<&'static str>,
+    is_export_root: bool,
+) {
     match value {
         Value::Array(items) => {
             for item in items {
-                collect_timed_entries(item, entries);
+                collect_timed_entries_in_base(item, entries, base, false);
             }
         }
         Value::Object(fields) => {
@@ -101,11 +110,23 @@ pub(super) fn collect_timed_entries(value: &Value, entries: &mut Vec<Value>) {
                     .get("data")
                     .and_then(Value::as_i64)
                     .and_then(item_name);
-                entries.push(json!({ "name": name, "entry": entry }));
+                entries.push(json!({ "name": name, "entry": entry, "base": base }));
             }
 
-            for child in fields.values() {
-                collect_timed_entries(child, entries);
+            for (key, child) in fields {
+                let child_base = if is_export_root {
+                    match key.as_str() {
+                        "buildings2" | "traps2" | "units2" | "heroes2" | "building_variants2" => {
+                            Some("builderBase")
+                        }
+                        "buildings" | "traps" | "units" | "heroes" | "spells" | "pets"
+                        | "siege_machines" | "equipment" | "building_variants" => Some("homeVillage"),
+                        _ => None,
+                    }
+                } else {
+                    base
+                };
+                collect_timed_entries_in_base(child, entries, child_base, false);
             }
         }
         _ => {}
@@ -179,4 +200,26 @@ pub(super) async fn update_village_label(
 
     transaction.commit().await?;
     Ok(exists)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn distinguishes_teslas_by_export_section() {
+        let export = json!({
+            "buildings": [{"data": 1000019, "lvl": 12, "timer": 100}],
+            "buildings2": [{"data": 1000043, "lvl": 4, "timer": 200}],
+        });
+        let mut entries = Vec::new();
+        collect_timed_entries(&export, &mut entries);
+        assert_eq!(
+            entries,
+            vec![
+                json!({"name": "Hidden Tesla", "base": "homeVillage", "entry": {"data": 1000019, "level": 12, "timer": 100}}),
+                json!({"name": "Hidden Tesla", "base": "builderBase", "entry": {"data": 1000043, "level": 4, "timer": 200}}),
+            ]
+        );
+    }
 }
