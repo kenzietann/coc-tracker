@@ -36,6 +36,32 @@ async fn handle_request(
     Ok(response)
 }
 
+/// The real client of a request. Requests from the internet come through Cloudflare and the local nginx, so
+/// the direct peer is 127.0.0.1. X-Forwarded-For is trusted only from a loopback peer (nginx), and read from
+/// the right: loopback hops are skipped and the first other address is the client, which nginx sets from
+/// Cloudflare's CF-Connecting-IP. Addresses a client writes earlier in the header are never reached, and a
+/// direct connection from another machine is not loopback, so its header is ignored.
+fn client_ip(peer: std::net::IpAddr, forwarded_for: Option<&str>) -> std::net::IpAddr {
+    let mut client = peer.to_canonical();
+    if !client.is_loopback() {
+        return client;
+    }
+    for hop in forwarded_for.unwrap_or("").rsplit(',') {
+        match hop.trim().parse::<std::net::IpAddr>() {
+            Ok(address) => {
+                client = address.to_canonical();
+                if !client.is_loopback() {
+                    break;
+                }
+            }
+            // A hop that is not an address cannot be trusted further: keep the last good one.
+            Err(_) => break,
+        }
+    }
+
+    client
+}
+
 /// Runs a request and writes one line about it: method, path with query, status, client, user agent,
 /// referer, sizes and duration. The level follows the status: info below 400, warn for 4xx, error for 5xx.
 async fn handle_and_log(
@@ -65,6 +91,8 @@ async fn handle_and_log(
     let bytes_in = header("content-length").and_then(|value| value.parse::<u64>().ok());
     let version = format!("{:?}", request.version());
 
+    let remote = client_ip(client.ip(), forwarded_for.as_deref());
+
     let response = handle_request(request, pool, request_id).await?;
     let status = response.status().as_u16();
 
@@ -74,8 +102,9 @@ async fn handle_and_log(
         "url": url.chars().take(2000).collect::<String>(),
         "http_version": version,
         "status": status,
-        "remote_addr": client.ip().to_string(),
-        "remote_port": client.port(),
+        "remote_addr": remote.to_string(),
+        "peer_addr": client.ip().to_string(),
+        "peer_port": client.port(),
         "host": host,
         "user_agent": user_agent,
         "referrer": referrer,
@@ -168,3 +197,36 @@ async fn main() {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::client_ip;
+
+    fn ip(text: &str) -> std::net::IpAddr {
+        text.parse().unwrap()
+    }
+
+    #[test]
+    fn takes_the_client_that_nginx_added() {
+        // Cloudflare appends the client, nginx appends it again from CF-Connecting-IP.
+        assert_eq!(client_ip(ip("127.0.0.1"), Some("203.0.113.9, 203.0.113.9")), ip("203.0.113.9"));
+        assert_eq!(client_ip(ip("::ffff:127.0.0.1"), Some("203.0.113.9")), ip("203.0.113.9"));
+    }
+
+    #[test]
+    fn ignores_what_a_client_writes_in_front() {
+        // A client sent "X-Forwarded-For: 1.2.3.4"; the hops added after it are the truth.
+        assert_eq!(client_ip(ip("127.0.0.1"), Some("1.2.3.4, 203.0.113.9")), ip("203.0.113.9"));
+        assert_eq!(client_ip(ip("127.0.0.1"), Some("1.2.3.4, 203.0.113.9, 127.0.0.1")), ip("203.0.113.9"));
+    }
+
+    #[test]
+    fn ignores_the_header_from_another_machine() {
+        assert_eq!(client_ip(ip("192.168.0.20"), Some("1.2.3.4")), ip("192.168.0.20"));
+    }
+
+    #[test]
+    fn keeps_the_peer_without_a_usable_header() {
+        assert_eq!(client_ip(ip("127.0.0.1"), None), ip("127.0.0.1"));
+        assert_eq!(client_ip(ip("127.0.0.1"), Some("not-an-address")), ip("127.0.0.1"));
+    }
+}
